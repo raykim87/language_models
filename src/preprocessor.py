@@ -19,5 +19,6 @@ def generate_cbow_pairs(tokenized_sentences, vocab, window_size=2):
                 pairs.append((vocab[target], [vocab[context] for context in context_window]))
     return pairs
 
-
+def truncate_sentences(tokenized_sentences, max_length=50):
+    return [sentence[:max_length] for sentence in tokenized_sentences]
 
