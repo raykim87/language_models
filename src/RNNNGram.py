@@ -5,7 +5,7 @@ from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence
 from torch.utils.data import Dataset, DataLoader
 
 
-class RNNnGramDataset(Dataset):
+class RNNNGramDataset(Dataset):
     def __init__(self, tokenized_sentences, vocab, seq_len, unk_idx):
         self.vocab = vocab
         self.seq_len = seq_len
@@ -54,10 +54,11 @@ def collate_fn(batch):
     lengths = torch.tensor(lengths, dtype=torch.long)
     return input_padded, target_padded, lengths
 
+
 class RNNModel(nn.Module):
-    def __init__(self, vocab_size, embedding_dim, hidden_size, padding_idx=0):
+    def __init__(self, vocab_size, embedding_dim, hidden_size):
         super(RNNModel, self).__init__()
-        self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx)
+        self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx= vocab["<pad>"])
         self.rnn = nn.RNN(embedding_dim, hidden_size, batch_first=True)
         self.fc = nn.Linear(hidden_size, vocab_size)
 
@@ -69,6 +70,12 @@ class RNNModel(nn.Module):
         out, _ = torch.nn.utils.rnn.pad_packed_sequence(out_packed, batch_first=True, total_length=x.size(1))
         out = self.fc(out)
         return out
+
+    def step(self, token_ids, hidden=None):
+        emb    = self.embedding(token_ids)
+        out, h = self.rnn(emb, hidden)
+        logits = self.fc(out)
+        return logits, h
 
 
 def train_rnn_model(dataset, vocab_size, embedding_dim=100, hidden_size=128, num_epochs=2, batch_size=64, lr=0.01):
@@ -93,4 +100,27 @@ def train_rnn_model(dataset, vocab_size, embedding_dim=100, hidden_size=128, num
             loss += batch_loss.item()
         print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss / len(dataloader):.4f}")
     return model
+
+
+def generate_text(model, start_sequence, idx2word, max_gen_len=20,
+                  temperature=1.0, greedy=True, device="cpu"):
+    model.eval().to(device)
+    generated = start_sequence.copy()
+    hidden    = None
+
+    with torch.no_grad():
+        for _ in range(max_gen_len):
+            last_id    = torch.tensor([[generated[-1]]], device=device)
+            logits, hidden = model.step(last_id, hidden)
+            logits = logits[0, 0, :]  # shape (vocab_size,)
+
+            if greedy:
+                next_id = torch.argmax(logits).item()
+            else:
+                probs   = F.softmax(logits / temperature, dim=-1)
+                next_id = torch.multinomial(probs, 1).item()
+
+            generated.append(next_id)
+
+    return [idx2word[i] for i in generated]
 
